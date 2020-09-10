@@ -28,12 +28,17 @@ initContainers:
     imagePullPolicy: {{ .Values.initChownData.image.pullPolicy }}
     securityContext:
       runAsUser: 0
-    command: ["chown", "-R", "{{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.runAsGroup }}", "/var/lib/grafana"]
+    command: ["/bin/sh", "-c", "mkdir -p $GF_PATHS_DATA && chown -R {{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.runAsUser }} $GF_PATHS_DATA"]
+    env:
+{{- range $key, $value := .Values.env }}
+      - name: {{ $key }}
+        value: "{{ $value }}"
+{{- end }}
     resources:
 {{ toYaml .Values.initChownData.resources | indent 6 }}
     volumeMounts:
       - name: storage
-        mountPath: "/var/lib/grafana"
+        mountPath: {{ .Values.env.GF_INSTALL_DIR|quote }}
 {{- if .Values.persistence.subPath }}
         subPath: {{ .Values.persistence.subPath }}
 {{- end }}
@@ -47,12 +52,16 @@ initContainers:
     {{- end }}
     imagePullPolicy: {{ .Values.downloadDashboardsImage.pullPolicy }}
     command: ["/bin/sh"]
-    args: [ "-c", "mkdir -p /var/lib/grafana/dashboards/default && /bin/sh /etc/grafana/download_dashboards.sh" ]
+    args: [ "-c", "mkdir -p $GF_PATHS_DATA/dashboards/default && /bin/sh /etc/grafana/download_dashboards.sh" ]
     resources:
 {{ toYaml .Values.downloadDashboards.resources | indent 6 }}
     env:
 {{- range $key, $value := .Values.downloadDashboards.env }}
-      - name: "{{ $key }}"
+      - name: {{ $key }}
+        value: "{{ $value }}"
+{{- end }}
+{{- range $key, $value := .Values.env }}
+      - name: {{ $key }}
         value: "{{ $value }}"
 {{- end }}
     volumeMounts:
@@ -60,7 +69,7 @@ initContainers:
         mountPath: "/etc/grafana/download_dashboards.sh"
         subPath: download_dashboards.sh
       - name: storage
-        mountPath: "/var/lib/grafana"
+        mountPath: {{ .Values.env.GF_INSTALL_DIR|quote }}
 {{- if .Values.persistence.subPath }}
         subPath: {{ .Values.persistence.subPath }}
 {{- end }}
@@ -214,16 +223,17 @@ containers:
         readOnly: {{ .readOnly }}
       {{- end }}
       - name: storage
-        mountPath: "/var/lib/grafana"
+        mountPath: {{ .Values.env.GF_INSTALL_DIR|quote }}
 {{- if .Values.persistence.subPath }}
         subPath: {{ .Values.persistence.subPath }}
 {{- end }}
+{{- $gfdatapath := .Values.env.GF_PATHS_DATA }}
 {{- if .Values.dashboards }}
 {{- range $provider, $dashboards := .Values.dashboards }}
 {{- range $key, $value := $dashboards }}
 {{- if (or (hasKey $value "json") (hasKey $value "file")) }}
       - name: dashboards-{{ $provider }}
-        mountPath: "/var/lib/grafana/dashboards/{{ $provider }}/{{ $key }}.json"
+        mountPath: "{{ $gfdatapath }}/dashboards/{{ $provider }}/{{ $key }}.json"
         subPath: "{{ $key }}.json"
 {{- end }}
 {{- end }}
@@ -232,7 +242,7 @@ containers:
 {{- if .Values.dashboardsConfigMaps }}
 {{- range (keys .Values.dashboardsConfigMaps | sortAlpha) }}
       - name: dashboards-{{ . }}
-        mountPath: "/var/lib/grafana/dashboards/{{ . }}"
+        mountPath: "{{ $gfdatapath }}/dashboards/{{ . }}"
 {{- end }}
 {{- end }}
 {{- if .Values.datasources }}
@@ -330,7 +340,7 @@ containers:
 {{ toYaml $value | indent 10 }}
     {{- end }}
 {{- range $key, $value := .Values.env }}
-      - name: "{{ $key }}"
+      - name: {{ $key }}
         value: "{{ $value }}"
 {{- end }}
     {{- if .Values.envFromSecret }}
